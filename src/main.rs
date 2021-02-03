@@ -2,6 +2,9 @@ use git2::Repository;
 use sqlx::sqlite::SqlitePool;
 use sqlx::Done;
 use std::env;
+use std::io::{self, Write};
+use std::path::Path;
+use std::process;
 use structopt::StructOpt;
 
 #[derive(Debug)]
@@ -36,10 +39,22 @@ enum Command {
     },
 }
 
+fn fetch_envvar(key: &str) -> anyhow::Result<String> {
+    match env::var(&key) {
+        Err(e) => {
+            writeln!(&mut io::stderr(), "couldn't interpret {}: {}", key, e)?;
+            process::exit(1);
+        },
+        Ok(val) => Ok(val),
+    }
+}
+
 #[async_std::main]
 #[paw::main]
 async fn main(args: Args) -> anyhow::Result<()> {
-    let pool = SqlitePool::connect(&env::var("DATABASE_URL")?).await?;
+    // TODO make this be sourced from a configuration file of sort...
+    let git_root = Path::new(&fetch_envvar("PMR_GIT_ROOT")?);
+    let pool = SqlitePool::connect(&fetch_envvar("DATABASE_URL")?).await?;
 
     match args.cmd {
         Some(Command::Register { url, description, long_description }) => {
@@ -68,7 +83,7 @@ async fn main(args: Args) -> anyhow::Result<()> {
                     None => "<empty>",
                 },
             );
-            git_sync_workspace(&workspace);
+            git_sync_workspace(&workspace)?;
         }
         None => {
             println!("Printing list of all workspaces");
