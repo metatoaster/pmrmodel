@@ -34,7 +34,7 @@ enum Command {
         #[structopt(short = "l", long = "longdesc", default_value = "")]
         long_description: String,
     },
-    Fetch {
+    Sync {
         id: i64,
     },
 }
@@ -53,7 +53,10 @@ fn fetch_envvar(key: &str) -> anyhow::Result<String> {
 #[paw::main]
 async fn main(args: Args) -> anyhow::Result<()> {
     // TODO make this be sourced from a configuration file of sort...
-    let git_root = Path::new(&fetch_envvar("PMR_GIT_ROOT")?);
+    // extend lifetime to scope
+    let temp_git_root = fetch_envvar("PMR_GIT_ROOT")?;
+    let git_root = Path::new(temp_git_root.as_str());
+
     let pool = SqlitePool::connect(&fetch_envvar("DATABASE_URL")?).await?;
 
     match args.cmd {
@@ -71,19 +74,10 @@ async fn main(args: Args) -> anyhow::Result<()> {
                 println!("Invalid workspace id {}", id);
             }
         }
-        Some(Command::Fetch { id }) => {
-            println!("Fetching commits for workspace with id {}", id);
+        Some(Command::Sync { id }) => {
+            println!("Syncing commits for workspace with id {}", id);
             let workspace = get_workspaces_by_id(&pool, id).await?;
-            println!(
-                "Got workspace {} - {} - {}",
-                workspace.id,
-                &workspace.url,
-                match &workspace.description {
-                    Some(v) => v,
-                    None => "<empty>",
-                },
-            );
-            git_sync_workspace(&workspace)?;
+            git_sync_workspace(&git_root, &workspace).await?;
         }
         None => {
             println!("Printing list of all workspaces");
@@ -174,11 +168,33 @@ WHERE id = ?1
     Ok(rec)
 }
 
+// TODO replace git_root with the struct, or refactor this into a class?
+async fn git_sync_workspace(git_root: &Path, workspace: &WorkspaceRecord) -> anyhow::Result<()> {
+    let repo_dir = git_root.join(workspace.id.to_string());
+    println!("Syncing local {:?} with remote <{}>...", repo_dir, &workspace.url);
 
-fn git_sync_workspace(workspace: &WorkspaceRecord) -> anyhow::Result<()> {
-    let repo = match Repository::clone(&workspace.url, workspace.id.to_string()) {
-        Ok(repo) => println!("Cloned repo"),
-        Err(e) => panic!("failed to clone: {}", e),
-    };
+    match Repository::open_bare(&repo_dir) {
+        Ok(repo) => {
+            println!("Found existing repo at {:?}, synchronizing...", repo_dir);
+            let mut remote = repo.find_remote("origin")?;
+            match remote.fetch(&[] as &[&str], None, None) {
+                Ok(_) => println!("Repository synchronized"),
+                Err(e) => panic!("Failed to synchronize: {}", e),
+            };
+        },
+        Err(e) => {
+            if e.class() == git2::ErrorClass::Repository {
+                panic!("Invalid data at local {:?} - expected bare repo", repo_dir);
+            }
+            println!("Cloning new repository at {:?}...", repo_dir);
+            let mut builder = git2::build::RepoBuilder::new();
+            builder.bare(true);
+            match builder.clone(&workspace.url, &repo_dir) {
+                Ok(_) => println!("Repository cloned"),
+                Err(e) => panic!("Failed to clone: {}", e),
+            };
+        }
+    }
+
     Ok(())
 }
