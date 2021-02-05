@@ -3,16 +3,31 @@ use git2::Repository;
 use sqlx::sqlite::SqlitePool;
 use sqlx::Done;
 use std::env;
+use std::fmt;
 use std::io::{self, Write};
 use std::path::Path;
 use std::process;
 use structopt::StructOpt;
 
-#[derive(Debug)]
 struct WorkspaceRecord {
     id: i64,
     url: String,
     description: Option<String>,
+}
+
+impl std::fmt::Display for WorkspaceRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} - {} - {}",
+            self.id,
+            &self.url,
+            match &self.description {
+                Some(v) => v,
+                None => "<empty>",
+            },
+        )
+    }
 }
 
 #[derive(StructOpt)]
@@ -127,7 +142,7 @@ WHERE id = ?3
 }
 
 async fn list_workspaces(pool: &SqlitePool) -> anyhow::Result<()> {
-    let recs = sqlx::query!(
+    let recs = sqlx::query_as!(WorkspaceRecord,
         r#"
 SELECT id, url, description
 FROM workspace
@@ -139,15 +154,7 @@ ORDER BY id
 
     println!("id - url - description");
     for rec in recs {
-        println!(
-            "{} - {} - {}",
-            rec.id,
-            &rec.url,
-            match &rec.description {
-                Some(v) => v,
-                None => "<empty>",
-            },
-        );
+        println!("{}", rec);
     }
 
     Ok(())
