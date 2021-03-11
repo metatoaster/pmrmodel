@@ -60,7 +60,7 @@ WHERE id = ?3
     Ok(rows_affected > 0)
 }
 
-pub async fn list_workspaces(pool: &SqlitePool) -> anyhow::Result<()> {
+pub async fn list_workspaces(pool: &SqlitePool) -> anyhow::Result<Vec<WorkspaceRecord>> {
     let recs = sqlx::query_as!(WorkspaceRecord,
         r#"
 SELECT id, url, description
@@ -70,13 +70,7 @@ ORDER BY id
     )
     .fetch_all(pool)
     .await?;
-
-    println!("id - url - description");
-    for rec in recs {
-        println!("{}", rec);
-    }
-
-    Ok(())
+    Ok(recs)
 }
 
 pub async fn get_workspaces_by_id(pool: &SqlitePool, id: i64) -> anyhow::Result<WorkspaceRecord> {

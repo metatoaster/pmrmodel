@@ -82,7 +82,11 @@ async fn main(args: Args) -> anyhow::Result<()> {
         }
         None => {
             println!("Printing list of all workspaces");
-            list_workspaces(&pool).await?;
+            let recs = list_workspaces(&pool).await?;
+            println!("id - url - description");
+            for rec in recs {
+                println!("{}", rec);
+            }
         }
     }
 
