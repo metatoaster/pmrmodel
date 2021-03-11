@@ -78,7 +78,7 @@ async fn main(args: Args) -> anyhow::Result<()> {
         Some(Command::Sync { id }) => {
             println!("Syncing commits for workspace with id {}", id);
             let workspace = get_workspaces_by_id(&pool, id).await?;
-            git_sync_workspace(&git_root, &workspace).await?;
+            git_sync_workspace(&pool, &git_root, &workspace).await?;
         }
         None => {
             println!("Printing list of all workspaces");

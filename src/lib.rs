@@ -3,4 +3,6 @@ pub mod repo {
 }
 pub mod model {
     pub mod workspace;
+    pub mod workspace_sync;
 }
+pub mod utils;
