@@ -11,6 +11,9 @@ use pmrmodel::model::workspace::{
     list_workspaces,
     get_workspaces_by_id,
 };
+use pmrmodel::model::workspace_sync::{
+    get_workspaces_sync_records
+};
 use pmrmodel::repo::git::{
     git_sync_workspace,
 };
@@ -40,6 +43,8 @@ enum Command {
     },
     Sync {
         id: i64,
+        #[structopt(short, long)]
+        log: bool,
     },
 }
 
@@ -85,10 +90,20 @@ async fn main(args: Args) -> anyhow::Result<()> {
                 println!("Invalid workspace id {}", id);
             }
         }
-        Some(Command::Sync { id }) => {
-            println!("Syncing commits for workspace with id {}", id);
-            let workspace = get_workspaces_by_id(&pool, id).await?;
-            git_sync_workspace(&pool, &git_root, &workspace).await?;
+        Some(Command::Sync { id, log }) => {
+            if log {
+                println!("Sync logs for workspace with id {}", id);
+                let recs = get_workspaces_sync_records(&pool, id).await?;
+                println!("start - end - status");
+                for rec in recs {
+                    println!("{}", rec);
+                }
+            }
+            else {
+                println!("Syncing commits for workspace with id {}", id);
+                let workspace = get_workspaces_by_id(&pool, id).await?;
+                git_sync_workspace(&pool, &git_root, &workspace).await?;
+            }
         }
         None => {
             println!("Printing list of all workspaces");

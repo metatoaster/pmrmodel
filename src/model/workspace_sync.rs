@@ -4,10 +4,16 @@ use sqlx::Done;
 
 use crate::utils::timestamp;
 
+use enum_primitive::FromPrimitive;
+
+enum_from_primitive! {
+#[derive(Debug, PartialEq)]
 pub enum WorkspaceSyncStatus {
     Completed,
     Running,
     Error,
+    Unknown = 65536,
+}
 }
 
 pub struct WorkspaceSyncRecord {
@@ -16,6 +22,21 @@ pub struct WorkspaceSyncRecord {
     pub start: i64,
     pub end: Option<i64>,
     pub status: i64,
+}
+
+impl std::fmt::Display for WorkspaceSyncRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} - {} - {:?}",
+            self.start,
+            match &self.end {
+                Some(v) => v.to_string(),
+                None => "<nil>".to_string(),
+            },
+            WorkspaceSyncStatus::from_i64(self.status).unwrap_or(WorkspaceSyncStatus::Unknown),
+        )
+    }
 }
 
 pub async fn begin_sync(pool: &SqlitePool, workspace_id: i64) -> anyhow::Result<i64> {
