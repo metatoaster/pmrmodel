@@ -19,6 +19,9 @@ use pmrmodel::repo::git::{
 struct Args {
     #[structopt(subcommand)]
     cmd: Option<Command>,
+
+    #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
+    verbose: usize,
 }
 
 #[derive(StructOpt)]
@@ -59,6 +62,13 @@ async fn main(args: Args) -> anyhow::Result<()> {
     let git_root = Path::new(temp_git_root.as_str());
 
     let pool = SqlitePool::connect(&fetch_envvar("DATABASE_URL")?).await?;
+
+    stderrlog::new()
+        .module(module_path!())
+        .verbosity(args.verbose + 1)
+        .timestamp(stderrlog::Timestamp::Second)
+        .init()
+        .unwrap();
 
     match args.cmd {
         Some(Command::Register { url, description, long_description }) => {

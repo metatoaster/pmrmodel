@@ -1,3 +1,4 @@
+use anyhow::bail;
 use sqlx::sqlite::SqlitePool;
 use sqlx::Done;
 
@@ -55,6 +56,11 @@ WHERE id = ?3
     .rows_affected();
 
     Ok(rows_affected > 0)
+}
+
+pub async fn fail_sync(pool: &SqlitePool, id: i64, msg: String) -> anyhow::Result<()> {
+    complete_sync(&pool, id, WorkspaceSyncStatus::Error).await?;
+    bail!(msg);
 }
 
 pub async fn get_workspaces_sync_records(pool: &SqlitePool, workspace_id: i64) -> anyhow::Result<Vec<WorkspaceSyncRecord>> {
