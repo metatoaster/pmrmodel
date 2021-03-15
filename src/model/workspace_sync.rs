@@ -1,8 +1,7 @@
 use anyhow::bail;
+use chrono::{TimeZone, Utc};
 use sqlx::sqlite::SqlitePool;
 use sqlx::Done;
-
-use crate::utils::timestamp;
 
 use enum_primitive::FromPrimitive;
 
@@ -12,7 +11,7 @@ pub enum WorkspaceSyncStatus {
     Completed,
     Running,
     Error,
-    Unknown = 65536,
+    Unknown = -1,
 }
 }
 
@@ -29,9 +28,9 @@ impl std::fmt::Display for WorkspaceSyncRecord {
         write!(
             f,
             "{} - {} - {:?}",
-            self.start,
-            match &self.end {
-                Some(v) => v.to_string(),
+            Utc.timestamp(self.start, 0).to_rfc3339(),
+            match self.end {
+                Some(v) => Utc.timestamp(v, 0).to_rfc3339(),
                 None => "<nil>".to_string(),
             },
             WorkspaceSyncStatus::from_i64(self.status).unwrap_or(WorkspaceSyncStatus::Unknown),
@@ -40,7 +39,7 @@ impl std::fmt::Display for WorkspaceSyncRecord {
 }
 
 pub async fn begin_sync(pool: &SqlitePool, workspace_id: i64) -> anyhow::Result<i64> {
-    let ts = timestamp()? as i64;
+    let ts = Utc::now().timestamp();
 
     let id = sqlx::query!(
         r#"
@@ -59,7 +58,7 @@ VALUES ( ?1, ?2, ?3 )
 }
 
 pub async fn complete_sync(pool: &SqlitePool, id: i64, status: WorkspaceSyncStatus) -> anyhow::Result<bool> {
-    let ts = timestamp()? as i64;
+    let ts = Utc::now().timestamp();
     let status_ = status as i32;
 
     let rows_affected = sqlx::query!(

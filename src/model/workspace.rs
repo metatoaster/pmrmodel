@@ -1,3 +1,4 @@
+use chrono::Utc;
 use sqlx::sqlite::SqlitePool;
 use sqlx::Done;
 use std::fmt;
@@ -25,15 +26,17 @@ impl std::fmt::Display for WorkspaceRecord {
 
 pub async fn add_workspace(pool: &SqlitePool, url: String, description: String, long_description: String) -> anyhow::Result<i64> {
     let mut conn = pool.acquire().await?;
+    let ts = Utc::now().timestamp();
 
     let id = sqlx::query!(
         r#"
 INSERT INTO workspace ( url, description, long_description, created )
-VALUES ( ?1, ?2, ?3, strftime('%Y-%m-%d %H:%M:%f','now') )
+VALUES ( ?1, ?2, ?3, ?4 )
         "#,
         url,
         description,
         long_description,
+        ts,
     )
     .execute(&mut conn)
     .await?

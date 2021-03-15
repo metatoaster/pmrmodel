@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS workspace (
     superceded_by_id INTEGER,  -- if superceded?
     description TEXT,
     long_description TEXT,
-    created DATETIME NOT NULL
+    created INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS workspace_sync (
