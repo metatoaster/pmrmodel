@@ -88,7 +88,6 @@ WHERE id = ?1
     )
     .fetch_one(pool)
     .await?;
-    // TODO custom match statement for Err/Ok for custom message
     Ok(rec)
 }
 

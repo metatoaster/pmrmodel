@@ -14,8 +14,12 @@ use pmrmodel::model::workspace::{
 use pmrmodel::model::workspace_sync::{
     get_workspaces_sync_records
 };
+use pmrmodel::model::workspace_tag::{
+    get_workspace_tags,
+};
 use pmrmodel::repo::git::{
     git_sync_workspace,
+    index_tags,
 };
 
 #[derive(StructOpt)]
@@ -46,6 +50,11 @@ enum Command {
         #[structopt(short, long)]
         log: bool,
     },
+    Tags {
+        id: i64,
+        #[structopt(short, long)]
+        index: bool,
+    }
 }
 
 fn fetch_envvar(key: &str) -> anyhow::Result<String> {
@@ -77,12 +86,12 @@ async fn main(args: Args) -> anyhow::Result<()> {
 
     match args.cmd {
         Some(Command::Register { url, description, long_description }) => {
-            println!("Registering workspace with url '{}'", &url);
+            println!("Registering workspace with url '{}'...", &url);
             let workspace_id = add_workspace(&pool, url, description, long_description).await?;
             println!("Registered workspace with id {}", workspace_id);
         }
         Some(Command::Update { id, description, long_description }) => {
-            println!("Updating workspace with id {}", id);
+            println!("Updating workspace with id {}...", id);
             if update_workspace(&pool, id, description, long_description).await? {
                 println!("Updated workspace id {}", id);
             }
@@ -92,7 +101,7 @@ async fn main(args: Args) -> anyhow::Result<()> {
         }
         Some(Command::Sync { id, log }) => {
             if log {
-                println!("Sync logs for workspace with id {}", id);
+                println!("Listing of sync logs for workspace with id {}", id);
                 let recs = get_workspaces_sync_records(&pool, id).await?;
                 println!("start - end - status");
                 for rec in recs {
@@ -100,9 +109,24 @@ async fn main(args: Args) -> anyhow::Result<()> {
                 }
             }
             else {
-                println!("Syncing commits for workspace with id {}", id);
+                println!("Syncing commits for workspace with id {}...", id);
                 let workspace = get_workspaces_by_id(&pool, id).await?;
                 git_sync_workspace(&pool, &git_root, &workspace).await?;
+            }
+        }
+        Some(Command::Tags { id, index }) => {
+            if index {
+                println!("Indexing tags for workspace with id {}...", id);
+                let workspace = get_workspaces_by_id(&pool, id).await?;
+                index_tags(&pool, &git_root, &workspace).await?;
+            }
+            else {
+                println!("Listing of indexed tags workspace with id {}", id);
+                let recs = get_workspace_tags(&pool, id).await?;
+                println!("commit_id - tag");
+                for rec in recs {
+                    println!("{}", rec);
+                }
             }
         }
         None => {

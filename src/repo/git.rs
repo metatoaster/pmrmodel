@@ -1,3 +1,5 @@
+use futures::stream::StreamExt;
+use futures::stream::futures_unordered::FuturesUnordered;
 use git2::Repository;
 use sqlx::sqlite::SqlitePool;
 use std::path::Path;
@@ -9,6 +11,7 @@ use crate::model::workspace_sync::{
     complete_sync,
     fail_sync,
 };
+use crate::model::workspace_tag::{index_workspace_tag};
 
 
 // TODO replace git_root with the struct, or refactor this into a class?
@@ -42,6 +45,31 @@ pub async fn git_sync_workspace(pool: &SqlitePool, git_root: &Path, workspace: &
     }
 
     complete_sync(&pool, sync_id, WorkspaceSyncStatus::Completed).await?;
+    index_tags(&pool, &git_root, &workspace).await?;
+
+    Ok(())
+}
+
+pub async fn index_tags(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord) -> anyhow::Result<()> {
+    let repo_dir = git_root.join(workspace.id.to_string());
+    let repo = Repository::open_bare(&repo_dir)?;
+
+    // collect all the tags for processing later
+    let mut tags = Vec::new();
+    repo.tag_foreach(|oid, name| {
+        // tags.push((oid, name));
+        tags.push((String::from_utf8(name.into()).unwrap(), format!("{}", oid)));
+        true
+    })?;
+
+    tags.iter().map(|tag| async move {
+        let name = tag.0.clone();
+        let commit_id = tag.1.clone();
+        match index_workspace_tag(&pool, workspace.id, name, commit_id).await {
+            Ok(_) => info!("indexed tag: {}", tag.0),
+            Err(e) => warn!("tagging error: {:?}", e),
+        }
+    }).collect::<FuturesUnordered<_>>().collect::<Vec<_>>().await;
 
     Ok(())
 }

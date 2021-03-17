@@ -94,7 +94,6 @@ WHERE workspace_id = ?1
     )
     .fetch_all(pool)
     .await?;
-    // TODO custom match statement for Err/Ok for custom message
     Ok(recs)
 }
 

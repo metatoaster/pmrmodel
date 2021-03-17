@@ -15,4 +15,14 @@ CREATE TABLE IF NOT EXISTS workspace_sync (
     status INTEGER NOT NULL,
     FOREIGN KEY(workspace_id) REFERENCES workspace(id)
 );
-CREATE INDEX workspace_id_idx ON workspace_sync(workspace_id);
+CREATE INDEX workspace_sync_idx_workspace_id ON workspace_sync(workspace_id);
+
+CREATE TABLE IF NOT EXISTS workspace_tag (
+    id INTEGER PRIMARY KEY NOT NULL,
+    workspace_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    commit_id TEXT NOT NULL,
+    FOREIGN KEY(workspace_id) REFERENCES workspace(id)
+);
+CREATE INDEX workspace_tag_idx_workspace_id ON workspace_tag(workspace_id);
+CREATE UNIQUE INDEX workspace_tag_idx_workspace_id_name ON workspace_tag(workspace_id, name);
