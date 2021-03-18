@@ -87,12 +87,12 @@ async fn main(args: Args) -> anyhow::Result<()> {
     match args.cmd {
         Some(Command::Register { url, description, long_description }) => {
             println!("Registering workspace with url '{}'...", &url);
-            let workspace_id = add_workspace(&pool, url, description, long_description).await?;
+            let workspace_id = add_workspace(&pool, &url, &description, &long_description).await?;
             println!("Registered workspace with id {}", workspace_id);
         }
         Some(Command::Update { id, description, long_description }) => {
             println!("Updating workspace with id {}...", id);
-            if update_workspace(&pool, id, description, long_description).await? {
+            if update_workspace(&pool, id, &description, &long_description).await? {
                 println!("Updated workspace id {}", id);
             }
             else {

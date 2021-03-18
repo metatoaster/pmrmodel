@@ -19,7 +19,7 @@ impl std::fmt::Display for WorkspaceTagRecord {
     }
 }
 
-pub async fn index_workspace_tag(pool: &SqlitePool, workspace_id: i64, name: String, commit_id: String) -> anyhow::Result<i64> {
+pub async fn index_workspace_tag(pool: &SqlitePool, workspace_id: i64, name: &str, commit_id: &str) -> anyhow::Result<i64> {
     let id = sqlx::query!(
         r#"
 INSERT INTO workspace_tag ( workspace_id, name, commit_id )

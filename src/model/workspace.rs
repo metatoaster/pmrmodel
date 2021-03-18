@@ -24,7 +24,7 @@ impl std::fmt::Display for WorkspaceRecord {
     }
 }
 
-pub async fn add_workspace(pool: &SqlitePool, url: String, description: String, long_description: String) -> anyhow::Result<i64> {
+pub async fn add_workspace(pool: &SqlitePool, url: &str, description: &str, long_description: &str) -> anyhow::Result<i64> {
     let mut conn = pool.acquire().await?;
     let ts = Utc::now().timestamp();
 
@@ -45,7 +45,7 @@ VALUES ( ?1, ?2, ?3, ?4 )
     Ok(id)
 }
 
-pub async fn update_workspace(pool: &SqlitePool, id: i64, description: String, long_description: String) -> anyhow::Result<bool> {
+pub async fn update_workspace(pool: &SqlitePool, id: i64, description: &str, long_description: &str) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query!(
         r#"
 UPDATE workspace

@@ -57,16 +57,14 @@ pub async fn index_tags(pool: &SqlitePool, git_root: &Path, workspace: &Workspac
     // collect all the tags for processing later
     let mut tags = Vec::new();
     repo.tag_foreach(|oid, name| {
-        // tags.push((oid, name));
+        // swapped position for next part.
         tags.push((String::from_utf8(name.into()).unwrap(), format!("{}", oid)));
         true
     })?;
 
-    tags.iter().map(|tag| async move {
-        let name = tag.0.clone();
-        let commit_id = tag.1.clone();
-        match index_workspace_tag(&pool, workspace.id, name, commit_id).await {
-            Ok(_) => info!("indexed tag: {}", tag.0),
+    tags.iter().map(|(name, oid)| async move {
+        match index_workspace_tag(&pool, workspace.id, &name, &oid).await {
+            Ok(_) => info!("indexed tag: {}", name),
             Err(e) => warn!("tagging error: {:?}", e),
         }
     }).collect::<FuturesUnordered<_>>().collect::<Vec<_>>().await;
