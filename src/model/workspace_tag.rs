@@ -24,6 +24,7 @@ pub async fn index_workspace_tag(pool: &SqlitePool, workspace_id: i64, name: &st
         r#"
 INSERT INTO workspace_tag ( workspace_id, name, commit_id )
 VALUES ( ?1, ?2, ?3 )
+ON CONFLICT (workspace_id, name, commit_id) DO NOTHING
         "#,
         workspace_id,
         name,

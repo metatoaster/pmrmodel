@@ -26,3 +26,4 @@ CREATE TABLE IF NOT EXISTS workspace_tag (
 );
 CREATE INDEX workspace_tag_idx_workspace_id ON workspace_tag(workspace_id);
 CREATE UNIQUE INDEX workspace_tag_idx_workspace_id_name ON workspace_tag(workspace_id, name);
+CREATE UNIQUE INDEX workspace_tag_idx_workspace_id_name_commit_id ON workspace_tag(workspace_id, name, commit_id);
