@@ -17,11 +17,11 @@ use crate::model::workspace_tag::{index_workspace_tag};
 // TODO replace git_root with the struct, or refactor this into a class?
 pub async fn git_sync_workspace(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord) -> anyhow::Result<()> {
     let repo_dir = git_root.join(workspace.id.to_string());
+    let repo_check = Repository::open_bare(&repo_dir);
+
     info!("Syncing local {:?} with remote <{}>...", repo_dir, &workspace.url);
     let sync_id = begin_sync(&pool, workspace.id).await?;
-
-    let repo = Repository::open_bare(&repo_dir);
-    match repo {
+    match repo_check {
         Ok(repo) => {
             info!("Found existing repo at {:?}, synchronizing...", repo_dir);
             let mut remote = repo.find_remote("origin")?;
