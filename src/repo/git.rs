@@ -1,6 +1,7 @@
+use anyhow::bail;
 use futures::stream::StreamExt;
 use futures::stream::futures_unordered::FuturesUnordered;
-use git2::Repository;
+use git2::{Repository, ObjectType};
 use sqlx::sqlite::SqlitePool;
 use std::path::Path;
 
@@ -69,5 +70,38 @@ pub async fn index_tags(pool: &SqlitePool, git_root: &Path, workspace: &Workspac
         }
     }).collect::<FuturesUnordered<_>>().collect::<Vec<_>>().await;
 
+    Ok(())
+}
+
+pub async fn get_blob(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord, spec: &str) -> anyhow::Result<()> {
+    let repo_dir = git_root.join(workspace.id.to_string());
+    let repo = Repository::open_bare(&repo_dir)?;
+    let obj = repo.revparse_single(spec)?;
+    info!("Found object {} {}", obj.kind().unwrap().str(), obj.id());
+    Ok(())
+}
+
+pub async fn get_pathinfo(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord, commit_id: Option<&str>, path: Option<&str>) -> anyhow::Result<()> {
+    let repo_dir = git_root.join(workspace.id.to_string());
+    let repo = Repository::open_bare(&repo_dir)?;
+    let obj = repo.revparse_single(commit_id.unwrap_or("HEAD"))?;
+    match obj.kind() {
+        Some(ObjectType::Commit) => {
+            info!("Found {} {}", obj.kind().unwrap().str(), obj.id());
+        }
+        Some(_) | None => bail!("'{}' does not refer to a valid commit", commit_id.unwrap_or(""))
+    }
+    let tree = obj.as_commit().unwrap().tree()?;
+    info!("Found tree {}", tree.id());
+    // TODO only further navigate into tree_entry if path
+    match path {
+        Some(s) => {
+            let tree_entry = tree.get_path(Path::new(s))?;
+            info!("Found tree_entry {} {}", tree_entry.kind().unwrap().str(), tree_entry.id());
+        },
+        None => {
+            info!("No path provided");
+        }
+    }
     Ok(())
 }
