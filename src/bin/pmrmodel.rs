@@ -1,3 +1,4 @@
+use git2::Object;
 use sqlx::sqlite::SqlitePool;
 use std::env;
 use std::io::{self, Write};
@@ -22,6 +23,8 @@ use pmrmodel::repo::git::{
     index_tags,
     get_blob,
     get_pathinfo,
+
+    stream_object_to_info,
 };
 
 #[derive(StructOpt)]
@@ -149,7 +152,13 @@ async fn main(args: Args) -> anyhow::Result<()> {
         }
         Some(Command::Info { workspace_id, commit_id, path }) => {
             let workspace = get_workspaces_by_id(&pool, workspace_id).await?;
-            get_pathinfo(&pool, &git_root, &workspace, commit_id.as_deref(), path.as_deref()).await?;
+            // TODO figure out why this is not possible
+            // let processor = |git_object| stream_object_to_info(io::stdout(), git_object);
+            fn processor(git_object: &Object) {
+                let stdout = io::stdout();
+                stream_object_to_info(stdout, git_object);
+            }
+            get_pathinfo(&pool, &git_root, &workspace, commit_id.as_deref(), path.as_deref(), processor).await?;
         }
         None => {
             println!("Printing list of all workspaces");

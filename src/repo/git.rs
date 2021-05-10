@@ -1,7 +1,8 @@
 use anyhow::bail;
 use futures::stream::StreamExt;
 use futures::stream::futures_unordered::FuturesUnordered;
-use git2::{Repository, ObjectType};
+use std::io::Write;
+use git2::{Repository, Object, ObjectType, Tree};
 use sqlx::sqlite::SqlitePool;
 use std::path::Path;
 
@@ -81,10 +82,12 @@ pub async fn get_blob(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceR
     Ok(())
 }
 
-pub async fn get_pathinfo(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord, commit_id: Option<&str>, path: Option<&str>) -> anyhow::Result<()> {
+pub async fn get_pathinfo(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord, commit_id: Option<&str>, path: Option<&str>, processor: fn(&Object) -> ()) -> anyhow::Result<()> {
     let repo_dir = git_root.join(workspace.id.to_string());
     let repo = Repository::open_bare(&repo_dir)?;
-    let obj = repo.revparse_single(commit_id.unwrap_or("HEAD"))?;
+    // TODO the default value should be the default (main?) branch.
+    let obj = repo.revparse_single(commit_id.unwrap_or("origin/HEAD"))?;
+    // TODO streamline this a bit.
     match obj.kind() {
         Some(ObjectType::Commit) => {
             info!("Found {} {}", obj.kind().unwrap().str(), obj.id());
@@ -94,14 +97,28 @@ pub async fn get_pathinfo(pool: &SqlitePool, git_root: &Path, workspace: &Worksp
     let tree = obj.as_commit().unwrap().tree()?;
     info!("Found tree {}", tree.id());
     // TODO only further navigate into tree_entry if path
-    match path {
+    let git_object = match path {
         Some(s) => {
             let tree_entry = tree.get_path(Path::new(s))?;
             info!("Found tree_entry {} {}", tree_entry.kind().unwrap().str(), tree_entry.id());
+            tree_entry.to_object(&repo)?
         },
         None => {
-            info!("No path provided");
+            info!("No path provided; using root tree entry");
+            tree.into_object()
         }
-    }
+    };
+    info!("using git_object {} {}", git_object.kind().unwrap().str(), git_object.id());
+    processor(&git_object);
+    Ok(())
+}
+
+// a simple function to decode and write result to stream
+// TODO break this up.
+pub fn stream_object_to_info(mut writer: impl Write, git_object: &Object) -> std::io::Result<()>
+{
+    writer.write(format!(
+        "processing git_object {} {}\n", git_object.kind().unwrap().str(), git_object.id()
+    ).as_bytes())?;
     Ok(())
 }
