@@ -76,7 +76,7 @@ ORDER BY id
     Ok(recs)
 }
 
-pub async fn get_workspaces_by_id(pool: &SqlitePool, id: i64) -> anyhow::Result<WorkspaceRecord> {
+pub async fn get_workspace_by_id(pool: &SqlitePool, id: i64) -> anyhow::Result<WorkspaceRecord> {
     // ignoring superceded_by_id for now?
     let rec = sqlx::query_as!(WorkspaceRecord,
         r#"

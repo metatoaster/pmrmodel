@@ -10,7 +10,7 @@ use pmrmodel::model::workspace::{
     add_workspace,
     update_workspace,
     list_workspaces,
-    get_workspaces_by_id,
+    get_workspace_by_id,
 };
 use pmrmodel::model::workspace_sync::{
     get_workspaces_sync_records
@@ -127,14 +127,14 @@ async fn main(args: Args) -> anyhow::Result<()> {
             }
             else {
                 println!("Syncing commits for workspace with id {}...", workspace_id);
-                let workspace = get_workspaces_by_id(&pool, workspace_id).await?;
+                let workspace = get_workspace_by_id(&pool, workspace_id).await?;
                 git_sync_workspace(&pool, &git_root, &workspace).await?;
             }
         }
         Some(Command::Tags { workspace_id, index }) => {
             if index {
                 println!("Indexing tags for workspace with id {}...", workspace_id);
-                let workspace = get_workspaces_by_id(&pool, workspace_id).await?;
+                let workspace = get_workspace_by_id(&pool, workspace_id).await?;
                 index_tags(&pool, &git_root, &workspace).await?;
             }
             else {
@@ -147,11 +147,11 @@ async fn main(args: Args) -> anyhow::Result<()> {
             }
         }
         Some(Command::Blob { workspace_id, obj_id }) => {
-            let workspace = get_workspaces_by_id(&pool, workspace_id).await?;
+            let workspace = get_workspace_by_id(&pool, workspace_id).await?;
             get_blob(&pool, &git_root, &workspace, &obj_id).await?;
         }
         Some(Command::Info { workspace_id, commit_id, path }) => {
-            let workspace = get_workspaces_by_id(&pool, workspace_id).await?;
+            let workspace = get_workspace_by_id(&pool, workspace_id).await?;
             // TODO figure out why this is not possible
             // let processor = |git_object| stream_object_to_info(io::stdout(), git_object);
             fn processor(git_object: &Object) {
