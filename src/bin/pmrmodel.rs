@@ -24,7 +24,7 @@ use pmrmodel::repo::git::{
     get_blob,
     get_pathinfo,
 
-    stream_object_to_info,
+    stream_git_result_set,
 };
 
 #[derive(StructOpt)]
@@ -152,13 +152,10 @@ async fn main(args: Args) -> anyhow::Result<()> {
         }
         Some(Command::Info { workspace_id, commit_id, path }) => {
             let workspace = get_workspace_by_id(&pool, workspace_id).await?;
-            // TODO figure out why this is not possible
-            // let processor = |git_object| stream_object_to_info(io::stdout(), git_object);
-            fn processor(git_object: &Object) {
-                let stdout = io::stdout();
-                stream_object_to_info(stdout, git_object);
-            }
-            get_pathinfo(&pool, &git_root, &workspace, commit_id.as_deref(), path.as_deref(), processor).await?;
+            get_pathinfo(
+                &pool, &git_root, &workspace, commit_id.as_deref(), path.as_deref(),
+                (|git_result_set| stream_git_result_set(io::stdout(), git_result_set))
+            ).await?;
         }
         None => {
             println!("Printing list of all workspaces");

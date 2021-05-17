@@ -2,7 +2,7 @@ use anyhow::bail;
 use futures::stream::StreamExt;
 use futures::stream::futures_unordered::FuturesUnordered;
 use std::io::Write;
-use git2::{Repository, Object, ObjectType, Tree};
+use git2::{Repository, Blob, Commit, Object, ObjectType, Tree};
 use sqlx::sqlite::SqlitePool;
 use std::path::Path;
 
@@ -15,8 +15,33 @@ use crate::model::workspace_sync::{
 };
 use crate::model::workspace_tag::{index_workspace_tag};
 
+pub struct GitResultSet<'a> {
+    repo: &'a Repository,
+    commit: &'a Commit<'a>,
+    path: &'a str,
+    object: Object<'a>,
+}
 
-// TODO replace git_root with the struct, or refactor this into a class?
+// For blob?
+#[derive(Debug)]
+pub enum ObjectInfo {
+    FileInfo {
+        path: String,
+        basename: String,
+        commit_id: String,
+        size: u64,
+    },
+    TreeInfo {
+        filecount: u64,
+    },
+    CommitInfo {
+        commit_id: String,
+        author: String,
+        committer: String,
+    },
+}
+
+
 pub async fn git_sync_workspace(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord) -> anyhow::Result<()> {
     let repo_dir = git_root.join(workspace.id.to_string());
     let repo_check = Repository::open_bare(&repo_dir);
@@ -82,7 +107,7 @@ pub async fn get_blob(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceR
     Ok(())
 }
 
-pub async fn get_pathinfo(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord, commit_id: Option<&str>, path: Option<&str>, processor: fn(&Object) -> ()) -> anyhow::Result<()> {
+pub async fn get_pathinfo(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord, commit_id: Option<&str>, path: Option<&str>, processor: fn(&GitResultSet) -> ()) -> anyhow::Result<()> {
     let repo_dir = git_root.join(workspace.id.to_string());
     let repo = Repository::open_bare(&repo_dir)?;
     // TODO the default value should be the default (main?) branch.
@@ -94,7 +119,8 @@ pub async fn get_pathinfo(pool: &SqlitePool, git_root: &Path, workspace: &Worksp
         }
         Some(_) | None => bail!("'{}' does not refer to a valid commit", commit_id.unwrap_or(""))
     }
-    let tree = obj.as_commit().unwrap().tree()?;
+    let commit = obj.as_commit().unwrap();
+    let tree = commit.tree()?;
     info!("Found tree {}", tree.id());
     // TODO only further navigate into tree_entry if path
     let git_object = match path {
@@ -109,16 +135,75 @@ pub async fn get_pathinfo(pool: &SqlitePool, git_root: &Path, workspace: &Worksp
         }
     };
     info!("using git_object {} {}", git_object.kind().unwrap().str(), git_object.id());
-    processor(&git_object);
+    let git_result_set = GitResultSet {
+        repo: &repo,
+        commit: commit,
+        path: path.unwrap_or(""),
+        object: git_object,
+    };
+    processor(&git_result_set);
     Ok(())
 }
 
-// a simple function to decode and write result to stream
-// TODO break this up.
-pub fn stream_object_to_info(mut writer: impl Write, git_object: &Object) -> std::io::Result<()>
-{
-    writer.write(format!(
-        "processing git_object {} {}\n", git_object.kind().unwrap().str(), git_object.id()
-    ).as_bytes())?;
-    Ok(())
+fn blob_to_info(blob: &Blob) -> ObjectInfo {
+    ObjectInfo::FileInfo {
+        path: "path".to_string(),
+        basename: "basename".to_string(),
+        commit_id: "commit_id".to_string(),
+        size: blob.size() as u64,
+    }
+}
+
+fn tree_to_info(tree: &Tree) -> ObjectInfo {
+    ObjectInfo::TreeInfo {
+        filecount: tree.len() as u64,
+    }
+}
+
+fn commit_to_info(commit: &Commit) -> ObjectInfo {
+    ObjectInfo::CommitInfo {
+        commit_id: format!("{}", commit.id()),
+        author: format!("{}", commit.author()),
+        committer: format!("{}", commit.committer()),
+    }
+}
+
+pub fn object_to_info(git_object: &Object) -> Option<ObjectInfo> {
+    // TODO split off to a formatter version?
+    // alternatively, produce some structured data?
+    match git_object.kind() {
+        Some(ObjectType::Blob) => {
+            Some(blob_to_info(git_object.as_blob().unwrap()))
+        }
+        Some(ObjectType::Tree) => {
+            Some(tree_to_info(git_object.as_tree().unwrap()))
+        }
+        Some(ObjectType::Commit) => {
+            Some(commit_to_info(git_object.as_commit().unwrap()))
+        }
+        Some(ObjectType::Tag) => {
+            None
+        }
+        Some(ObjectType::Any) | None => {
+            None
+        }
+    }
+}
+
+pub fn stream_git_result_set(mut writer: impl Write, git_result_set: &GitResultSet) -> () {
+    // TODO split off to a formatter version?
+    // alternatively, produce some structured data?
+    writer.write(format!("
+        have repo at {:?}
+        have commit {:?}
+        have commit_object {:?}
+        using repopath {:?}
+        have git_object {:?}
+        \n",
+        git_result_set.repo.path(),
+        &git_result_set.commit.id(),
+        commit_to_info(&git_result_set.commit),
+        git_result_set.path,
+        object_to_info(&git_result_set.object),
+    ).as_bytes()).unwrap();
 }
