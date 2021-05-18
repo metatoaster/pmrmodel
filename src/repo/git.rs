@@ -22,6 +22,14 @@ pub struct GitResultSet<'a> {
     object: Object<'a>,
 }
 
+#[derive(Debug)]
+pub struct TreeEntryInfo {
+    filemode: String,
+    kind: String,
+    id: String,
+    name: String,
+}
+
 // For blob?
 #[derive(Debug)]
 pub enum ObjectInfo {
@@ -33,6 +41,7 @@ pub enum ObjectInfo {
     },
     TreeInfo {
         filecount: u64,
+        entries: Vec<TreeEntryInfo>,
     },
     CommitInfo {
         commit_id: String,
@@ -154,9 +163,15 @@ fn blob_to_info(blob: &Blob) -> ObjectInfo {
     }
 }
 
-fn tree_to_info(tree: &Tree) -> ObjectInfo {
+fn tree_to_info(repo: &Repository, tree: &Tree) -> ObjectInfo {
     ObjectInfo::TreeInfo {
         filecount: tree.len() as u64,
+        entries: tree.iter().map(|entry| TreeEntryInfo {
+            filemode: format!("{:06o}", entry.filemode()),
+            kind: entry.kind().unwrap().str().to_string(),
+            id: format!("{}", entry.id()),
+            name: entry.name().unwrap().to_string(),
+        }).collect(),
     }
 }
 
@@ -168,7 +183,7 @@ fn commit_to_info(commit: &Commit) -> ObjectInfo {
     }
 }
 
-pub fn object_to_info(git_object: &Object) -> Option<ObjectInfo> {
+pub fn object_to_info(repo: &Repository, git_object: &Object) -> Option<ObjectInfo> {
     // TODO split off to a formatter version?
     // alternatively, produce some structured data?
     match git_object.kind() {
@@ -176,7 +191,7 @@ pub fn object_to_info(git_object: &Object) -> Option<ObjectInfo> {
             Some(blob_to_info(git_object.as_blob().unwrap()))
         }
         Some(ObjectType::Tree) => {
-            Some(tree_to_info(git_object.as_tree().unwrap()))
+            Some(tree_to_info(&repo, git_object.as_tree().unwrap()))
         }
         Some(ObjectType::Commit) => {
             Some(commit_to_info(git_object.as_commit().unwrap()))
@@ -204,6 +219,6 @@ pub fn stream_git_result_set(mut writer: impl Write, git_result_set: &GitResultS
         &git_result_set.commit.id(),
         commit_to_info(&git_result_set.commit),
         git_result_set.path,
-        object_to_info(&git_result_set.object),
+        object_to_info(&git_result_set.repo, &git_result_set.object),
     ).as_bytes()).unwrap();
 }
