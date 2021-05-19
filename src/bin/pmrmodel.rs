@@ -2,7 +2,7 @@ use git2::Object;
 use sqlx::sqlite::SqlitePool;
 use std::env;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::PathBuf;
 use std::process;
 use structopt::StructOpt;
 
@@ -19,6 +19,8 @@ use pmrmodel::model::workspace_tag::{
     get_workspace_tags,
 };
 use pmrmodel::repo::git::{
+    GitPmrAccessor,
+
     git_sync_workspace,
     index_tags,
     get_blob,
@@ -88,10 +90,7 @@ fn fetch_envvar(key: &str) -> anyhow::Result<String> {
 #[paw::main]
 async fn main(args: Args) -> anyhow::Result<()> {
     // TODO make this be sourced from a configuration file of sort...
-    // extend lifetime to scope
-    let temp_git_root = fetch_envvar("PMR_GIT_ROOT")?;
-    let git_root = Path::new(temp_git_root.as_str());
-
+    let git_root = PathBuf::from(fetch_envvar("PMR_GIT_ROOT")?);
     let pool = SqlitePool::connect(&fetch_envvar("DATABASE_URL")?).await?;
 
     stderrlog::new()
@@ -128,14 +127,16 @@ async fn main(args: Args) -> anyhow::Result<()> {
             else {
                 println!("Syncing commits for workspace with id {}...", workspace_id);
                 let workspace = get_workspace_by_id(&pool, workspace_id).await?;
-                git_sync_workspace(&pool, &git_root, &workspace).await?;
+                let git_pmr_accessor = GitPmrAccessor::new(pool, git_root, workspace);
+                git_sync_workspace(&git_pmr_accessor).await?;
             }
         }
         Some(Command::Tags { workspace_id, index }) => {
             if index {
                 println!("Indexing tags for workspace with id {}...", workspace_id);
                 let workspace = get_workspace_by_id(&pool, workspace_id).await?;
-                index_tags(&pool, &git_root, &workspace).await?;
+                let git_pmr_accessor = GitPmrAccessor::new(pool, git_root, workspace);
+                index_tags(&git_pmr_accessor).await?;
             }
             else {
                 println!("Listing of indexed tags workspace with id {}", workspace_id);
@@ -148,12 +149,14 @@ async fn main(args: Args) -> anyhow::Result<()> {
         }
         Some(Command::Blob { workspace_id, obj_id }) => {
             let workspace = get_workspace_by_id(&pool, workspace_id).await?;
-            get_blob(&pool, &git_root, &workspace, &obj_id).await?;
+            let git_pmr_accessor = GitPmrAccessor::new(pool, git_root, workspace);
+            get_blob(&git_pmr_accessor, &obj_id).await?;
         }
         Some(Command::Info { workspace_id, commit_id, path }) => {
             let workspace = get_workspace_by_id(&pool, workspace_id).await?;
+            let git_pmr_accessor = GitPmrAccessor::new(pool, git_root, workspace);
             get_pathinfo(
-                &pool, &git_root, &workspace, commit_id.as_deref(), path.as_deref(),
+                &git_pmr_accessor, commit_id.as_deref(), path.as_deref(),
                 (|git_result_set| stream_git_result_set(io::stdout(), git_result_set))
             ).await?;
         }

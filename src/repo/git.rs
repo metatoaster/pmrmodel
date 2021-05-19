@@ -4,7 +4,7 @@ use futures::stream::futures_unordered::FuturesUnordered;
 use std::io::Write;
 use git2::{Repository, Blob, Commit, Object, ObjectType, Tree};
 use sqlx::sqlite::SqlitePool;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::model::workspace::WorkspaceRecord;
 use crate::model::workspace_sync::{
@@ -15,11 +15,30 @@ use crate::model::workspace_sync::{
 };
 use crate::model::workspace_tag::{index_workspace_tag};
 
-pub struct GitResultSet<'a> {
-    repo: &'a Repository,
-    commit: &'a Commit<'a>,
-    path: &'a str,
-    object: Object<'a>,
+// TODO encapsulate the standard set of argument as a struct?
+pub struct GitPmrAccessor {
+    pool: SqlitePool,
+    git_root: PathBuf,
+    workspace: WorkspaceRecord,
+}
+
+impl GitPmrAccessor {
+    // TODO have constructor that takes a workspace_id?
+    // not sure how to deal with async
+    pub fn new(pool: SqlitePool, git_root: PathBuf, workspace: WorkspaceRecord) -> GitPmrAccessor {
+        GitPmrAccessor {
+            pool: pool,
+            git_root: git_root,
+            workspace: workspace,
+        }
+    }
+}
+
+pub struct GitResultSet<'git_result_set> {
+    repo: &'git_result_set Repository,
+    commit: &'git_result_set Commit<'git_result_set>,
+    path: &'git_result_set str,
+    object: Object<'git_result_set>,
 }
 
 #[derive(Debug)]
@@ -51,19 +70,20 @@ pub enum ObjectInfo {
 }
 
 
-pub async fn git_sync_workspace(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord) -> anyhow::Result<()> {
-    let repo_dir = git_root.join(workspace.id.to_string());
+pub async fn git_sync_workspace(git_pmr_accessor: &GitPmrAccessor) -> anyhow::Result<()> {
+    let repo_dir = git_pmr_accessor.git_root.join(git_pmr_accessor.workspace.id.to_string());
     let repo_check = Repository::open_bare(&repo_dir);
+    let pool = &git_pmr_accessor.pool;
 
-    info!("Syncing local {:?} with remote <{}>...", repo_dir, &workspace.url);
-    let sync_id = begin_sync(&pool, workspace.id).await?;
+    info!("Syncing local {:?} with remote <{}>...", repo_dir, &git_pmr_accessor.workspace.url);
+    let sync_id = begin_sync(pool, git_pmr_accessor.workspace.id).await?;
     match repo_check {
         Ok(repo) => {
             info!("Found existing repo at {:?}, synchronizing...", repo_dir);
             let mut remote = repo.find_remote("origin")?;
             match remote.fetch(&[] as &[&str], None, None) {
                 Ok(_) => info!("Repository synchronized"),
-                Err(e) => fail_sync(&pool, sync_id, format!("Failed to synchronize: {}", e)).await?,
+                Err(e) => fail_sync(pool, sync_id, format!("Failed to synchronize: {}", e)).await?,
             };
         },
         Err(ref e) if e.class() == git2::ErrorClass::Repository => fail_sync(
@@ -73,22 +93,25 @@ pub async fn git_sync_workspace(pool: &SqlitePool, git_root: &Path, workspace: &
             info!("Cloning new repository at {:?}...", repo_dir);
             let mut builder = git2::build::RepoBuilder::new();
             builder.bare(true);
-            match builder.clone(&workspace.url, &repo_dir) {
+            match builder.clone(&git_pmr_accessor.workspace.url, &repo_dir) {
                 Ok(_) => info!("Repository cloned"),
-                Err(e) => fail_sync(&pool, sync_id, format!("Failed to clone: {}", e)).await?,
+                Err(e) => fail_sync(pool, sync_id, format!("Failed to clone: {}", e)).await?,
             };
         }
     }
 
-    complete_sync(&pool, sync_id, WorkspaceSyncStatus::Completed).await?;
-    index_tags(&pool, &git_root, &workspace).await?;
+    complete_sync(pool, sync_id, WorkspaceSyncStatus::Completed).await?;
+    index_tags(&git_pmr_accessor).await?;
 
     Ok(())
 }
 
-pub async fn index_tags(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord) -> anyhow::Result<()> {
+pub async fn index_tags(git_pmr_accessor: &GitPmrAccessor) -> anyhow::Result<()> {
+    let pool = &git_pmr_accessor.pool;
+    let git_root = &git_pmr_accessor.git_root;
+    let workspace = &git_pmr_accessor.workspace;
     let repo_dir = git_root.join(workspace.id.to_string());
-    let repo = Repository::open_bare(&repo_dir)?;
+    let repo = Repository::open_bare(repo_dir)?;
 
     // collect all the tags for processing later
     let mut tags = Vec::new();
@@ -99,7 +122,7 @@ pub async fn index_tags(pool: &SqlitePool, git_root: &Path, workspace: &Workspac
     })?;
 
     tags.iter().map(|(name, oid)| async move {
-        match index_workspace_tag(&pool, workspace.id, &name, &oid).await {
+        match index_workspace_tag(pool, workspace.id, &name, &oid).await {
             Ok(_) => info!("indexed tag: {}", name),
             Err(e) => warn!("tagging error: {:?}", e),
         }
@@ -108,17 +131,21 @@ pub async fn index_tags(pool: &SqlitePool, git_root: &Path, workspace: &Workspac
     Ok(())
 }
 
-pub async fn get_blob(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord, spec: &str) -> anyhow::Result<()> {
+pub async fn get_blob(git_pmr_accessor: &GitPmrAccessor, spec: &str) -> anyhow::Result<()> {
+    let git_root = &git_pmr_accessor.git_root;
+    let workspace = &git_pmr_accessor.workspace;
     let repo_dir = git_root.join(workspace.id.to_string());
-    let repo = Repository::open_bare(&repo_dir)?;
+    let repo = Repository::open_bare(repo_dir)?;
     let obj = repo.revparse_single(spec)?;
     info!("Found object {} {}", obj.kind().unwrap().str(), obj.id());
     Ok(())
 }
 
-pub async fn get_pathinfo(pool: &SqlitePool, git_root: &Path, workspace: &WorkspaceRecord, commit_id: Option<&str>, path: Option<&str>, processor: fn(&GitResultSet) -> ()) -> anyhow::Result<()> {
+pub async fn get_pathinfo(git_pmr_accessor: &GitPmrAccessor, commit_id: Option<&str>, path: Option<&str>, processor: fn(&GitResultSet) -> ()) -> anyhow::Result<()> {
+    let git_root = &git_pmr_accessor.git_root;
+    let workspace = &git_pmr_accessor.workspace;
     let repo_dir = git_root.join(workspace.id.to_string());
-    let repo = Repository::open_bare(&repo_dir)?;
+    let repo = Repository::open_bare(repo_dir)?;
     // TODO the default value should be the default (main?) branch.
     let obj = repo.revparse_single(commit_id.unwrap_or("origin/HEAD"))?;
     // TODO streamline this a bit.
