@@ -35,10 +35,10 @@ impl GitPmrAccessor {
 }
 
 pub struct GitResultSet<'git_result_set> {
-    repo: &'git_result_set Repository,
-    commit: &'git_result_set Commit<'git_result_set>,
-    path: &'git_result_set str,
-    object: Object<'git_result_set>,
+    pub repo: &'git_result_set Repository,
+    pub commit: &'git_result_set Commit<'git_result_set>,
+    pub path: &'git_result_set str,
+    pub object: Object<'git_result_set>,
 }
 
 #[derive(Debug)]
@@ -131,17 +131,24 @@ pub async fn index_tags(git_pmr_accessor: &GitPmrAccessor) -> anyhow::Result<()>
     Ok(())
 }
 
-pub async fn get_blob(git_pmr_accessor: &GitPmrAccessor, spec: &str) -> anyhow::Result<()> {
+pub async fn get_obj_by_spec(git_pmr_accessor: &GitPmrAccessor, spec: &str) -> anyhow::Result<()> {
     let git_root = &git_pmr_accessor.git_root;
     let workspace = &git_pmr_accessor.workspace;
     let repo_dir = git_root.join(workspace.id.to_string());
     let repo = Repository::open_bare(repo_dir)?;
     let obj = repo.revparse_single(spec)?;
     info!("Found object {} {}", obj.kind().unwrap().str(), obj.id());
+    info!("{:?}", object_to_info(&repo, &obj));
     Ok(())
 }
 
-pub async fn get_pathinfo(git_pmr_accessor: &GitPmrAccessor, commit_id: Option<&str>, path: Option<&str>, processor: fn(&GitResultSet) -> ()) -> anyhow::Result<()> {
+pub fn stream_blob(mut writer: impl Write, blob: &Blob) -> std::result::Result<usize, std::io::Error> {
+    writer.write(blob.content())
+}
+
+// shouldn't this be 'with_pathinfo'?
+// commit_id/path should be a pathinfo struct?
+pub async fn get_pathinfo<T>(git_pmr_accessor: &GitPmrAccessor, commit_id: Option<&str>, path: Option<&str>, processor: fn(&GitResultSet) -> T) -> anyhow::Result<T> {
     let git_root = &git_pmr_accessor.git_root;
     let workspace = &git_pmr_accessor.workspace;
     let repo_dir = git_root.join(workspace.id.to_string());
@@ -177,8 +184,7 @@ pub async fn get_pathinfo(git_pmr_accessor: &GitPmrAccessor, commit_id: Option<&
         path: path.unwrap_or(""),
         object: git_object,
     };
-    processor(&git_result_set);
-    Ok(())
+    Ok(processor(&git_result_set))
 }
 
 fn blob_to_info(blob: &Blob) -> ObjectInfo {
@@ -248,4 +254,21 @@ pub fn stream_git_result_set(mut writer: impl Write, git_result_set: &GitResultS
         git_result_set.path,
         object_to_info(&git_result_set.repo, &git_result_set.object),
     ).as_bytes()).unwrap();
+}
+
+pub fn stream_git_result_set_blob(writer: impl Write, git_result_set: &GitResultSet) -> anyhow::Result<()> {
+    match git_result_set.object.kind() {
+        Some(ObjectType::Blob) => {
+            match git_result_set.object.as_blob() {
+                Some(blob) => {
+                    stream_blob(writer, blob)?;
+                    Ok(())
+                }
+                None => bail!("failed to get blob from object")
+            }
+        }
+        Some(_) | None => {
+            bail!("target is not a git blob")
+        }
+    }
 }

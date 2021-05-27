@@ -23,10 +23,11 @@ use pmrmodel::repo::git::{
 
     git_sync_workspace,
     index_tags,
-    get_blob,
+    get_obj_by_spec,
     get_pathinfo,
 
     stream_git_result_set,
+    stream_git_result_set_blob,
 };
 
 #[derive(StructOpt)]
@@ -73,6 +74,8 @@ enum Command {
         commit_id: Option<String>,
         #[structopt(short, long)]
         path: Option<String>,
+        #[structopt(short, long)]
+        raw: bool,
     },
 }
 
@@ -150,15 +153,23 @@ async fn main(args: Args) -> anyhow::Result<()> {
         Some(Command::Blob { workspace_id, obj_id }) => {
             let workspace = get_workspace_by_id(&pool, workspace_id).await?;
             let git_pmr_accessor = GitPmrAccessor::new(pool, git_root, workspace);
-            get_blob(&git_pmr_accessor, &obj_id).await?;
+            get_obj_by_spec(&git_pmr_accessor, &obj_id).await?;
         }
-        Some(Command::Info { workspace_id, commit_id, path }) => {
+        Some(Command::Info { workspace_id, commit_id, path, raw }) => {
             let workspace = get_workspace_by_id(&pool, workspace_id).await?;
             let git_pmr_accessor = GitPmrAccessor::new(pool, git_root, workspace);
-            get_pathinfo(
-                &git_pmr_accessor, commit_id.as_deref(), path.as_deref(),
-                (|git_result_set| stream_git_result_set(io::stdout(), git_result_set))
-            ).await?;
+            if (raw) {
+                get_pathinfo(
+                    &git_pmr_accessor, commit_id.as_deref(), path.as_deref(),
+                    |git_result_set| stream_git_result_set_blob(io::stdout(), git_result_set)
+                ).await?.unwrap();
+            }
+            else {
+                get_pathinfo(
+                    &git_pmr_accessor, commit_id.as_deref(), path.as_deref(),
+                    |git_result_set| stream_git_result_set(io::stdout(), git_result_set)
+                ).await?;
+            }
         }
         None => {
             println!("Printing list of all workspaces");
