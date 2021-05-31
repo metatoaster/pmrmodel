@@ -53,10 +53,8 @@ pub struct TreeEntryInfo {
 #[derive(Debug)]
 pub enum ObjectInfo {
     FileInfo {
-        path: String,
-        basename: String,
-        commit_id: String,
         size: u64,
+        binary: bool,
     },
     TreeInfo {
         filecount: u64,
@@ -189,10 +187,8 @@ pub async fn get_pathinfo<T>(git_pmr_accessor: &GitPmrAccessor, commit_id: Optio
 
 fn blob_to_info(blob: &Blob) -> ObjectInfo {
     ObjectInfo::FileInfo {
-        path: "path".to_string(),
-        basename: "basename".to_string(),
-        commit_id: "commit_id".to_string(),
         size: blob.size() as u64,
+        binary: blob.is_binary(),
     }
 }
 
