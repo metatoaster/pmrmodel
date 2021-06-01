@@ -24,7 +24,7 @@ use pmrmodel::repo::git::{
     git_sync_workspace,
     index_tags,
     get_obj_by_spec,
-    get_pathinfo,
+    process_pathinfo,
 
     stream_git_result_set,
     stream_git_result_set_blob,
@@ -159,13 +159,13 @@ async fn main(args: Args) -> anyhow::Result<()> {
             let workspace = get_workspace_by_id(&pool, workspace_id).await?;
             let git_pmr_accessor = GitPmrAccessor::new(pool, git_root, workspace);
             if (raw) {
-                get_pathinfo(
+                process_pathinfo(
                     &git_pmr_accessor, commit_id.as_deref(), path.as_deref(),
                     |git_result_set| stream_git_result_set_blob(io::stdout(), git_result_set)
                 ).await?.unwrap();
             }
             else {
-                get_pathinfo(
+                process_pathinfo(
                     &git_pmr_accessor, commit_id.as_deref(), path.as_deref(),
                     |git_result_set| stream_git_result_set(io::stdout(), git_result_set)
                 ).await?;

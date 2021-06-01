@@ -144,14 +144,20 @@ pub fn stream_blob(mut writer: impl Write, blob: &Blob) -> std::result::Result<u
     writer.write(blob.content())
 }
 
-// shouldn't this be 'with_pathinfo'?
 // commit_id/path should be a pathinfo struct?
-pub async fn get_pathinfo<T>(git_pmr_accessor: &GitPmrAccessor, commit_id: Option<&str>, path: Option<&str>, processor: fn(&GitResultSet) -> T) -> anyhow::Result<T> {
+pub async fn process_pathinfo<T>(
+    git_pmr_accessor: &GitPmrAccessor,
+    commit_id: Option<&str>,
+    path: Option<&str>,
+    processor: fn(&GitResultSet) -> T
+) -> anyhow::Result<T> {
     let git_root = &git_pmr_accessor.git_root;
     let workspace = &git_pmr_accessor.workspace;
     let repo_dir = git_root.join(workspace.id.to_string());
     let repo = Repository::open_bare(repo_dir)?;
     // TODO the default value should be the default (main?) branch.
+    // TODO the sync procedure should fast forward of sort
+    // TODO the model should have a field for main branch
     let obj = repo.revparse_single(commit_id.unwrap_or("origin/HEAD"))?;
     // TODO streamline this a bit.
     match obj.kind() {
