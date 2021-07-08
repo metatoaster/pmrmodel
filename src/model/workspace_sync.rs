@@ -1,7 +1,6 @@
 use anyhow::bail;
 use chrono::{TimeZone, Utc};
 use sqlx::sqlite::SqlitePool;
-use sqlx::Done;
 
 use enum_primitive::FromPrimitive;
 

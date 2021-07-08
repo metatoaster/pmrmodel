@@ -1,6 +1,5 @@
 use chrono::Utc;
 use sqlx::sqlite::SqlitePool;
-use sqlx::Done;
 use std::fmt;
 
 pub struct WorkspaceRecord {

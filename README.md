@@ -2,15 +2,22 @@
 
 A demo of the core concepts for PMR, written in Rust.
 
-## Demo
+## Build
 
-In the cloned directory, run:
+To build, simply clone this repository, change to that directory, and:
+
+```console
+$ cargo build
+```
+
+## Usage
+
+To use the demo binary, the database should be built.
 
 ```console
 $ touch workspace.db
-$ source .env 
+$ source .env
 $ sqlx migrate run
-$ cargo build
 ```
 
 The `sqlx` utility should be installed from the sqlx-cli crate.
