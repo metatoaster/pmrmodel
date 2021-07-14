@@ -6,18 +6,22 @@ use git2::{Repository, Blob, Commit, Object, ObjectType, Tree};
 use sqlx::sqlite::SqlitePool;
 use std::path::{Path, PathBuf};
 
-use crate::model::workspace::WorkspaceRecord;
-use crate::model::workspace_sync::{
-    WorkspaceSyncStatus,
-    begin_sync,
-    complete_sync,
-    fail_sync,
+use crate::model::backend::SqliteBackend;
+use crate::model::workspace::{
+    WorkspaceBackend,
+    WorkspaceRecord,
 };
-use crate::model::workspace_tag::{index_workspace_tag};
+use crate::model::workspace_sync::{
+    WorkspaceSyncBackend,
+    WorkspaceSyncStatus,
+};
+use crate::model::workspace_tag::WorkspaceTagBackend;
 
 // TODO encapsulate the standard set of argument as a struct?
 pub struct GitPmrAccessor {
-    pool: SqlitePool,
+    // TODO instead of SqliteBackend, it should be impl WorkspaceBackend/etc
+    // TODO figure out if there's a way to group together the Workspace*Backend impls?
+    backend: SqliteBackend,
     git_root: PathBuf,
     workspace: WorkspaceRecord,
 }
@@ -25,9 +29,11 @@ pub struct GitPmrAccessor {
 impl GitPmrAccessor {
     // TODO have constructor that takes a workspace_id?
     // not sure how to deal with async
-    pub fn new(pool: SqlitePool, git_root: PathBuf, workspace: WorkspaceRecord) -> GitPmrAccessor {
+    pub fn new(backend: SqliteBackend, git_root: PathBuf, workspace: WorkspaceRecord) -> GitPmrAccessor {
+        // TODO the SqliteBackend here is moved?
+        // figure out if we can make this a reference?
         GitPmrAccessor {
-            pool: pool,
+            backend: backend,
             git_root: git_root,
             workspace: workspace,
         }
@@ -71,21 +77,20 @@ pub enum ObjectInfo {
 pub async fn git_sync_workspace(git_pmr_accessor: &GitPmrAccessor) -> anyhow::Result<()> {
     let repo_dir = git_pmr_accessor.git_root.join(git_pmr_accessor.workspace.id.to_string());
     let repo_check = Repository::open_bare(&repo_dir);
-    let pool = &git_pmr_accessor.pool;
 
     info!("Syncing local {:?} with remote <{}>...", repo_dir, &git_pmr_accessor.workspace.url);
-    let sync_id = begin_sync(pool, git_pmr_accessor.workspace.id).await?;
+    let sync_id = WorkspaceSyncBackend::begin_sync(&git_pmr_accessor.backend, git_pmr_accessor.workspace.id).await?;
     match repo_check {
         Ok(repo) => {
             info!("Found existing repo at {:?}, synchronizing...", repo_dir);
             let mut remote = repo.find_remote("origin")?;
             match remote.fetch(&[] as &[&str], None, None) {
                 Ok(_) => info!("Repository synchronized"),
-                Err(e) => fail_sync(pool, sync_id, format!("Failed to synchronize: {}", e)).await?,
+                Err(e) => WorkspaceSyncBackend::fail_sync(&git_pmr_accessor.backend, sync_id, format!("Failed to synchronize: {}", e)).await?,
             };
         },
-        Err(ref e) if e.class() == git2::ErrorClass::Repository => fail_sync(
-            &pool, sync_id, format!(
+        Err(ref e) if e.class() == git2::ErrorClass::Repository => WorkspaceSyncBackend::fail_sync(
+            &git_pmr_accessor.backend, sync_id, format!(
                 "Invalid data at local {:?} - expected bare repo", repo_dir)).await?,
         Err(_) => {
             info!("Cloning new repository at {:?}...", repo_dir);
@@ -93,19 +98,19 @@ pub async fn git_sync_workspace(git_pmr_accessor: &GitPmrAccessor) -> anyhow::Re
             builder.bare(true);
             match builder.clone(&git_pmr_accessor.workspace.url, &repo_dir) {
                 Ok(_) => info!("Repository cloned"),
-                Err(e) => fail_sync(pool, sync_id, format!("Failed to clone: {}", e)).await?,
+                Err(e) => WorkspaceSyncBackend::fail_sync(&git_pmr_accessor.backend, sync_id, format!("Failed to clone: {}", e)).await?,
             };
         }
     }
 
-    complete_sync(pool, sync_id, WorkspaceSyncStatus::Completed).await?;
+    WorkspaceSyncBackend::complete_sync(&git_pmr_accessor.backend, sync_id, WorkspaceSyncStatus::Completed).await?;
     index_tags(&git_pmr_accessor).await?;
 
     Ok(())
 }
 
 pub async fn index_tags(git_pmr_accessor: &GitPmrAccessor) -> anyhow::Result<()> {
-    let pool = &git_pmr_accessor.pool;
+    let backend = &git_pmr_accessor.backend;
     let git_root = &git_pmr_accessor.git_root;
     let workspace = &git_pmr_accessor.workspace;
     let repo_dir = git_root.join(workspace.id.to_string());
@@ -120,7 +125,7 @@ pub async fn index_tags(git_pmr_accessor: &GitPmrAccessor) -> anyhow::Result<()>
     })?;
 
     tags.iter().map(|(name, oid)| async move {
-        match index_workspace_tag(pool, workspace.id, &name, &oid).await {
+        match WorkspaceTagBackend::index_workspace_tag(backend, workspace.id, &name, &oid).await {
             Ok(_) => info!("indexed tag: {}", name),
             Err(e) => warn!("tagging error: {:?}", e),
         }

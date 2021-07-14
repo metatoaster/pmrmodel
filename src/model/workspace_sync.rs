@@ -1,8 +1,19 @@
+use async_trait::async_trait;
 use anyhow::bail;
 use chrono::{TimeZone, Utc};
 use sqlx::sqlite::SqlitePool;
 
 use enum_primitive::FromPrimitive;
+
+use crate::model::backend::SqliteBackend;
+
+#[async_trait]
+pub trait WorkspaceSyncBackend {
+    async fn begin_sync(&self, workspace_id: i64) -> anyhow::Result<i64>;
+    async fn complete_sync(&self, id: i64, status: WorkspaceSyncStatus) -> anyhow::Result<bool>;
+    async fn fail_sync(&self, id: i64, msg: String) -> anyhow::Result<()>;
+    async fn get_workspaces_sync_records(&self, workspace_id: i64) -> anyhow::Result<Vec<WorkspaceSyncRecord>>;
+}
 
 enum_from_primitive! {
 #[derive(Debug, PartialEq)]
@@ -37,62 +48,64 @@ impl std::fmt::Display for WorkspaceSyncRecord {
     }
 }
 
-pub async fn begin_sync(pool: &SqlitePool, workspace_id: i64) -> anyhow::Result<i64> {
-    let ts = Utc::now().timestamp();
+#[async_trait]
+impl WorkspaceSyncBackend for SqliteBackend {
+    async fn begin_sync(&self, workspace_id: i64) -> anyhow::Result<i64> {
+        let ts = Utc::now().timestamp();
 
-    let id = sqlx::query!(
-        r#"
-INSERT INTO workspace_sync ( workspace_id, start, status )
-VALUES ( ?1, ?2, ?3 )
-        "#,
-        workspace_id,
-        ts,
-        WorkspaceSyncStatus::Running as i32,
-    )
-    .execute(pool)
-    .await?
-    .last_insert_rowid();
+        let id = sqlx::query!(
+            r#"
+    INSERT INTO workspace_sync ( workspace_id, start, status )
+    VALUES ( ?1, ?2, ?3 )
+            "#,
+            workspace_id,
+            ts,
+            WorkspaceSyncStatus::Running as i32,
+        )
+        .execute(&*self.pool)
+        .await?
+        .last_insert_rowid();
 
-    Ok(id)
+        Ok(id)
+    }
+
+    async fn complete_sync(&self, id: i64, status: WorkspaceSyncStatus) -> anyhow::Result<bool> {
+        let ts = Utc::now().timestamp();
+        let status_ = status as i32;
+
+        let rows_affected = sqlx::query!(
+            r#"
+    UPDATE workspace_sync
+    SET end = ?1, status = ?2
+    WHERE id = ?3
+            "#,
+            ts,
+            status_,
+            id,
+        )
+        .execute(&*self.pool)
+        .await?
+        .rows_affected();
+
+        Ok(rows_affected > 0)
+    }
+
+    async fn fail_sync(&self, id: i64, msg: String) -> anyhow::Result<()> {
+        self.complete_sync(id, WorkspaceSyncStatus::Error).await?;
+        bail!(msg);
+    }
+
+    async fn get_workspaces_sync_records(&self, workspace_id: i64) -> anyhow::Result<Vec<WorkspaceSyncRecord>> {
+        let recs = sqlx::query_as!(WorkspaceSyncRecord,
+            r#"
+    SELECT id, workspace_id, start, end, status
+    FROM workspace_sync
+    WHERE workspace_id = ?1
+            "#,
+            workspace_id,
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(recs)
+    }
 }
-
-pub async fn complete_sync(pool: &SqlitePool, id: i64, status: WorkspaceSyncStatus) -> anyhow::Result<bool> {
-    let ts = Utc::now().timestamp();
-    let status_ = status as i32;
-
-    let rows_affected = sqlx::query!(
-        r#"
-UPDATE workspace_sync
-SET end = ?1, status = ?2
-WHERE id = ?3
-        "#,
-        ts,
-        status_,
-        id,
-    )
-    .execute(pool)
-    .await?
-    .rows_affected();
-
-    Ok(rows_affected > 0)
-}
-
-pub async fn fail_sync(pool: &SqlitePool, id: i64, msg: String) -> anyhow::Result<()> {
-    complete_sync(&pool, id, WorkspaceSyncStatus::Error).await?;
-    bail!(msg);
-}
-
-pub async fn get_workspaces_sync_records(pool: &SqlitePool, workspace_id: i64) -> anyhow::Result<Vec<WorkspaceSyncRecord>> {
-    let recs = sqlx::query_as!(WorkspaceSyncRecord,
-        r#"
-SELECT id, workspace_id, start, end, status
-FROM workspace_sync
-WHERE workspace_id = ?1
-        "#,
-        workspace_id,
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(recs)
-}
-
